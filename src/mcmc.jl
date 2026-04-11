@@ -188,7 +188,7 @@ function generalSizeAndShapeMCMC(;
         thinburnin = thin
         isburn = false
 
-        copy_parameters_out(iMCMC, posteriorparamters, mean_mcmc, datamodel, covariance_mcmc, data_mcmc) 
+        copy_parameters_out(covariates, fm, iMCMC, posteriorparamters, mean_mcmc, datamodel, covariance_mcmc, data_mcmc) 
 
         
 

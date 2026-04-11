@@ -133,6 +133,7 @@ nsim::Int64 = size(beta,1)
 n::Int64 = modeloutput.datatype.n
 k::Int64 = modeloutput.datatype.k
 p::Int64 = modeloutput.datatype.p
+app::Matrix{Float64} = zeros(k, p)
 
 
 res = DataFrame(zeros(Float64,nsim,k*p*n),:auto)
@@ -147,7 +148,7 @@ for iobs = 1:n
         v[2]/r  v[1]/r]
         app[:, :] .= app[:,:] * Q  *rmat[i,:,:,iobs]
     
-        res[i,((iobs-1)*k*p) .+ (1:(k*p))] = reshape(app, k*p, 1) +  vcat([Q*rand(MvNormal([0.0 for i = 1:k],Symmetric(sigma[i,:,:]))) for iii = 1:p]...)
+        res[i,((iobs-1)*k*p) .+ (1:(k*p))] = reshape(app, k*p, 1) +  vcat([rand(MvNormal([0.0 for i = 1:k],Symmetric(sigma[i,:,:]))) for iii = 1:p]...)
         
         
 

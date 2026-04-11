@@ -382,6 +382,7 @@ struct LinearMean{IC<:IdentifiabilityConstraint} <: TypeModelMean
     colnames_modelmatrix::Vector{String} # small
     model_matrix::Matrix{Float64}   # small
     identifiability::IC
+    
 
     function LinearMean{IC}(designmatrix::Array{Float64,3}, d::Int64, colnames_modelmatrix::Vector{String}, designmatrix_v2::Matrix{Float64}, identident::IC) where {IC<:IdentifiabilityConstraint}
 
@@ -602,50 +603,95 @@ function create_object_output(sampletosave::Int64,mean_mcmc::MCMCLinearMean, cov
     generalMCMCObjectOUT(betaOUT, sigmaOUT,rmatOUT,angleOUT,betaidentOUT,sigmaidentOUT,rmatidentOUT,angleidentOUT, betaDF,sigmaDF,rmatDF,angleDF, sampletosave )
 end
 
-function copy_parameters_out(imcmc::Int64, out::generalMCMCObjectOUT, mean_mcmc::MCMCLinearMean, datamodel::SSDataType{<:KeepReflection, <:DoRemoveLocation, <:ValueP, <:DoNotRemoveSize,<:GramSchmidtMean}, covariance_mcmc::MCMCGeneralCoVarianceIndependentDimension, data_mcmc::MCMCNormalDataKeepSize)
-
-
-    out.nonidentbeta[imcmc,:,:] = mean_mcmc.beta_mcmc[:,:]
-    out.nonidentsigma[imcmc,:,:] =  covariance_mcmc.covariance_mcmc[:,:]
+function copy_parameters_out(covariates::DataFrame, fm::FormulaTerm, imcmc::Int64, out::generalMCMCObjectOUT, mean_mcmc::MCMCLinearMean, datamodel::SSDataType{<:KeepReflection, <:DoRemoveLocation, <:ValueP, <:DoNotRemoveSize,<:GramSchmidtMean}, covariance_mcmc::MCMCGeneralCoVarianceIndependentDimension, data_mcmc::MCMCNormalDataKeepSize)
+    out.nonidentbeta[imcmc,:,:] = mean_mcmc.beta_mcmc[:,:] # not indetified betas --> size iter x kd x p
+    out.nonidentsigma[imcmc,:,:] =  covariance_mcmc.covariance_mcmc[:,:] # not identified sigma
     out.nonidentrmat[imcmc,:,:,:] = data_mcmc.rmat_mcmc[:,:,:]
     out.nonidentangle[imcmc,:,:] = data_mcmc.angles_mcmc[:,:]
+    
+    app_rot = deepcopy(data_mcmc.rmat_mcmc)
+    app_angle = deepcopy(data_mcmc.angles_mcmc)
+    
     Raw_data = datamodel.nolocdata[:, :, 1]
     n_points = size(Raw_data, 1)
-
+    
     max_dist_sq = -Inf
     pair = (0, 0)
 
-    for i in 1:n_points
+    for i in 1:n_points # this function need to be optimized, but for now it is the way to find the two most distant points --> they should be the same across iterations
         for j in (i + 1):n_points
             diff = Raw_data[i, :] .- Raw_data[j, :]
             dist_sq = sum(diff .^ 2)
-        
+            
             if dist_sq > max_dist_sq
                 max_dist_sq = dist_sq
                 pair = (i, j)
             end
         end
-    end
-    M_raw = mean_mcmc.mean_mcmc[:, :, 1] # average configuration for the first iteration
-    M_anchored = M_raw .- M_raw[pair[1], :]' # subtract the first row to have first landmark in (0,0)
-    r = sqrt(sum(M_anchored[pair[2],:].^2)) # compute the distance from the origin
-    x = M_anchored[pair[2],1]
-    y = M_anchored[pair[2],2]
-    gammamat = [ x/r  -y/r ; 
-             y/r   x/r ]
+    end # no matter the if there are categorical variables or not, we will always use the same constraints
+    covariates_copy = deepcopy(covariates)
+    terms_in_model = StatsModels.termvars(fm)
+    categorical_vars = [v for v in terms_in_model if isa(covariates_copy[!, v], CategoricalArray) || (eltype(covariates_copy[!, v]) <: AbstractString)] # are there any categorical variables in the model?
+    continuous_vars = [v for v in terms_in_model if !isa(covariates_copy[!, v], CategoricalArray) && !(eltype(covariates_copy[!, v]) <: AbstractString)]
+    k = size( covariance_mcmc.covariance_mcmc, 1)
+    proj = zeros(k, 1)
+    proj[pair[1]] = 1.0
+    # println(proj)
+    # println(ones(k, 1))
+    center_matrix = 1* Matrix(I, k, k) .- ones(k,  1)'*proj
+    if isempty(categorical_vars) #this is the easier case and we are happy with it
+        M_raw = mean_mcmc.mean_mcmc[:, :, 1] # average configuration for the first observation
+        M_anchored = M_raw .- M_raw[pair[1], :]' # subtract the first row to have first landmark in (0,0)
+        r = sqrt(sum(M_anchored[pair[2],:].^2)) # compute the distance from the origin
+        x = M_anchored[pair[2],1]
+        y = M_anchored[pair[2],2]
+        gammamat = [ x/r  -y/r ; 
+                y/r   x/r ]
 
-    #gammamat = standardize_reg_computegamma(mean_mcmc.beta_mcmc, datamodel.valp,datamodel.identifiability)
-    #gammamat = standardize_reg_computegamma_gimmi(mean_mcmc.beta_mcmc, datamodel.valp,datamodel.identifiability)
-    #out.identbeta[imcmc,:,:] = (mean_mcmc.beta_mcmc .-mean_mcmc.beta_mcmc[1,:]') *gammamat
-    out.identbeta[imcmc,:,:] = mean_mcmc.beta_mcmc *gammamat
-    out.identsigma[imcmc,:,:] = covariance_mcmc.covariance_mcmc[:,:]
-    app_rot = deepcopy(data_mcmc.rmat_mcmc)
-    app_angle = deepcopy(data_mcmc.angles_mcmc)
-    for i = 1:size(data_mcmc.rmat_mcmc,3)
-        app_rot[:,:,i] .= transpose(gammamat)*app_rot[:,:,i]
-        #app_rot[:,:,i] .= app_rot[:,:,i]*transpose(gammamat)
-        compute_angle_from_rmat(i,app_angle, app_rot, datamodel.valp, datamodel.reflection)
-        #@assert isapprox(det(app_rot[:,:,i]),1.0)  "ss" * string(det(app_rot[:,:,i]))
+        #gammamat = standardize_reg_computegamma(mean_mcmc.beta_mcmc, datamodel.valp,datamodel.identifiability)
+        #gammamat = standardize_reg_computegamma_gimmi(mean_mcmc.beta_mcmc, datamodel.valp,datamodel.identifiability)
+        #out.identbeta[imcmc,:,:] = (mean_mcmc.beta_mcmc .-mean_mcmc.beta_mcmc[1,:]') *gammamat
+        out.identbeta[imcmc,:,:] = mean_mcmc.beta_mcmc *gammamat
+        for i = 1:size(data_mcmc.rmat_mcmc,3)
+            app_rot[:,:,i] .= transpose(gammamat)*app_rot[:,:,i]
+            #app_rot[:,:,i] .= app_rot[:,:,i]*transpose(gammamat)
+            compute_angle_from_rmat(i,app_angle, app_rot, datamodel.valp, datamodel.reflection)
+            #@assert isapprox(det(app_rot[:,:,i]),1.0)  "ss" * string(det(app_rot[:,:,i]))
+        end
+    else # categorical variables present
+    # we know for sure that the first kd represent the intercept
+
+    if isempty(continuous_vars)
+        # use the first categorical variable to define groups
+        v = categorical_vars[1]
+        lvls = levels(covariates_copy[!, v]) # find the levels of the first categorical variable
+        for (i, l) in enumerate(lvls)
+            col_idx = ((i-1) *k + 1):(i * k)
+            idxs = findall(x -> x == l, covariates_copy[!, v])
+            M_raw_group = mean(mean_mcmc.mean_mcmc[:, :, idxs], dims = 3) # take the mean shape for the group
+            M_anchored = M_raw_group .- M_raw_group[pair[1], :]' # subtract the first row to have first landmark in (0,0)
+            r = sqrt(sum(M_anchored[pair[2],:].^2)) # compute the distance from the origin
+            x = M_anchored[pair[2],1]
+            y = M_anchored[pair[2],2]
+            gammamat = [ x/r  -y/r ; 
+                y/r   x/r ]
+            if i == 1
+                out.identbeta[imcmc,col_idx,:] .= center_matrix * mean_mcmc.beta_mcmc[col_idx,:] *gammamat
+            else
+                out.identbeta[imcmc,col_idx,:] .=  mean_mcmc.beta_mcmc[col_idx,:] *gammamat
+            end
+            for ix in eachindex(idxs)
+                app_rot[:,:,idxs[ix]] .= transpose(gammamat)*app_rot[:,:,idxs[ix]]
+            #app_rot[:,:,i] .= app_rot[:,:,i]*transpose(gammamat)
+                compute_angle_from_rmat(i,app_angle, app_rot, datamodel.valp, datamodel.reflection)
+            #@assert isapprox(det(app_rot[:,:,i]),1.0)  "ss" * string(det(app_rot[:,:,i]))
+            end
+        end
+
+
+    else
+        println("It will be done soon")
+    end
     end
 
     #out.identbeta[imcmc,:,:] = mean_mcmc.beta_mcmc
