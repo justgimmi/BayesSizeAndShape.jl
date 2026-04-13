@@ -636,12 +636,13 @@ function copy_parameters_out(covariates::DataFrame, fm::FormulaTerm, imcmc::Int6
     k = size( covariance_mcmc.covariance_mcmc, 1)
     proj = zeros(k, 1)
     proj[pair[1]] = 1.0
-    # println(proj)
+    # println(ones(k,  1)'*proj)
     # println(ones(k, 1))
-    center_matrix = 1* Matrix(I, k, k) .- ones(k,  1)'*proj
+    center_matrix = 1* Matrix(I, k, k) .- ones(k,  1)*proj'
     if isempty(categorical_vars) #this is the easier case and we are happy with it
         M_raw = mean_mcmc.mean_mcmc[:, :, 1] # average configuration for the first observation
-        M_anchored = M_raw .- M_raw[pair[1], :]' # subtract the first row to have first landmark in (0,0)
+        # M_anchored = M_raw .- M_raw[pair[1], :]' # subtract the first row to have first landmark in (0,0)
+        M_anchored = center_matrix*M_raw[:, :] # subtract the first row to have first landmark in (0,0)
         r = sqrt(sum(M_anchored[pair[2],:].^2)) # compute the distance from the origin
         x = M_anchored[pair[2],1]
         y = M_anchored[pair[2],2]
@@ -668,23 +669,34 @@ function copy_parameters_out(covariates::DataFrame, fm::FormulaTerm, imcmc::Int6
         for (i, l) in enumerate(lvls)
             col_idx = ((i-1) *k + 1):(i * k)
             idxs = findall(x -> x == l, covariates_copy[!, v])
-            M_raw_group = mean(mean_mcmc.mean_mcmc[:, :, idxs], dims = 3) # take the mean shape for the group
-            M_anchored = M_raw_group .- M_raw_group[pair[1], :]' # subtract the first row to have first landmark in (0,0)
+            M_raw_group = mean_mcmc.mean_mcmc[:, :, idxs[1]]# take the mean shape for the group
+            
+            #println(M_raw_group)
+            #M_anchored = M_raw_group .- M_raw_group[pair[1], :]' # subtract the first row to have first landmark in (0,0)
+            M_anchored = center_matrix*M_raw_group[:, :] # subtract the first row to have first landmark in (0,0)
             r = sqrt(sum(M_anchored[pair[2],:].^2)) # compute the distance from the origin
             x = M_anchored[pair[2],1]
             y = M_anchored[pair[2],2]
             gammamat = [ x/r  -y/r ; 
                 y/r   x/r ]
             if i == 1
+                # println(mean_mcmc.beta_mcmc[col_idx,:])
                 out.identbeta[imcmc,col_idx,:] .= center_matrix * mean_mcmc.beta_mcmc[col_idx,:] *gammamat
-            else
-                out.identbeta[imcmc,col_idx,:] .=  mean_mcmc.beta_mcmc[col_idx,:] *gammamat
-            end
-            for ix in eachindex(idxs)
-                app_rot[:,:,idxs[ix]] .= transpose(gammamat)*app_rot[:,:,idxs[ix]]
+                for ix in eachindex(idxs)
+                    app_rot[:,:,idxs[ix]] .= transpose(gammamat)*app_rot[:,:,idxs[ix]]
             #app_rot[:,:,i] .= app_rot[:,:,i]*transpose(gammamat)
-                compute_angle_from_rmat(i,app_angle, app_rot, datamodel.valp, datamodel.reflection)
+                    compute_angle_from_rmat(idxs[ix],app_angle, app_rot, datamodel.valp, datamodel.reflection)
             #@assert isapprox(det(app_rot[:,:,i]),1.0)  "ss" * string(det(app_rot[:,:,i]))
+                end 
+            elseif  i > 1
+                # out.identbeta[imcmc,col_idx,:] .=   center_matrix * mean_mcmc.beta_mcmc[col_idx,:] *gammamat
+                out.identbeta[imcmc,col_idx,:] .=   mean_mcmc.beta_mcmc[col_idx,:]*gammamat
+                for ix in eachindex(idxs)
+                    app_rot[:,:,idxs[ix]] .= transpose(gammamat)*app_rot[:,:,idxs[ix]]
+            #app_rot[:,:,i] .= app_rot[:,:,i]*transpose(gammamat)
+                    compute_angle_from_rmat(idxs[ix],app_angle, app_rot, datamodel.valp, datamodel.reflection)
+            #@assert isapprox(det(app_rot[:,:,i]),1.0)  "ss" * string(det(app_rot[:,:,i]))
+                end 
             end
         end
 
@@ -692,7 +704,7 @@ function copy_parameters_out(covariates::DataFrame, fm::FormulaTerm, imcmc::Int6
     else
         println("It will be done soon")
     end
-    end
+end
 
     #out.identbeta[imcmc,:,:] = mean_mcmc.beta_mcmc
     #out.identsigma[imcmc,:,:] = covariance_mcmc.covariance_mcmc[:,:]
