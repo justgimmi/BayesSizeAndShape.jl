@@ -293,7 +293,7 @@ function create_designmatrix(fm::FormulaTerm, covariates::DataFrame, k::Int64)::
     # coef_names = ["(Intercept)"]
     # continuous_vars = [v for v in terms_in_model if !isa(covariates[!, v], CategoricalArray) && !(eltype(covariates[!, v]) <: AbstractString)]
     categorical_vars = [v for v in terms_in_model if isa(covariates[!, v], CategoricalArray) || (eltype(covariates[!, v]) <: AbstractString)] # find possible categorical variables in the model
-    contrast_dict = Dict{Symbol, Any}() # this is useful to specify the contrasts for the categorical variables in the model, if needed
+    #contrast_dict = Dict{Symbol, Any}() # this is useful to specify the contrasts for the categorical variables in the model, if needed
     
     # if !isempty(categorical_vars)
     #     for v in categorical_vars
