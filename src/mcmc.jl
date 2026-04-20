@@ -26,7 +26,8 @@ function generalSizeAndShapeMCMC(;
 )
 
     ##### dimensions
-    k::Int64 = size(landmarks, 1)-1
+    #k::Int64 = size(landmarks, 1)-1
+    k::Int64 = size(landmarks, 1)
     kland::Int64 = size(landmarks, 1)
     p::Int64 = size(landmarks, 2)
     n::Int64 = size(landmarks, 3)

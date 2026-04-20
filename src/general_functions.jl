@@ -101,7 +101,8 @@ function remove_location(landmarks::Array{Float64,3}, removelocation::DoRemoveLo
     
     H = removelocation.matrix
     ret = deepcopy(landmarks)
-    ret = ret[2:end,:,:]
+    #ret = ret[2:end,:,:]
+    ret = ret[:,:,:]
     for i = 1:size(landmarks,3)
         ret[:,:,i] = H*landmarks[:,:,i]
     end

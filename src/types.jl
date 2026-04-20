@@ -140,9 +140,9 @@ struct RemoveLocationCentering{VP<:ValueP} <: DoRemoveLocation
     function RemoveLocationCentering(k::Int64, val::VP) where {VP<:ValueP}
 
         #H::Matrix{Float64} = zeros(Float64, k + 1, k + 1)
-        H::Matrix{Float64} = fill(-1.0 / (k + 1), k + 1, k + 1) + I
-
-        H = H[2:end, :]
+        #H::Matrix{Float64} = fill(-1.0 / (k + 1), k + 1, k + 1) + I
+        H::Matrix{Float64} = fill(-1.0 / (k), k, k ) + I
+        H = H[1:end, :] # when we use centering, we do not lose a landamrk even tough the colsum is zero --> we will bias the analysys
         new{VP}(H, val)
 
     end
@@ -241,7 +241,8 @@ struct SSDataType{R<:Reflection,RL<:RemoveLocation,VP<:ValueP,RS<:RemoveSize,IC<
 end
 function SSDataType(landmarks::Array{Float64}, reflection::KeepReflection, removelocation::RL, valp::P, removesize::DoNotRemoveSize, identification::IC) where {IC<:IdentifiabilityConstraint, P<:ValueP, RL<:DoRemoveLocation}
 
-    k::Int64 = size(landmarks, 1) - 1
+    #k::Int64 = size(landmarks, 1) - 1
+    k::Int64 = size(landmarks, 1)
     n::Int64 = size(landmarks, 3)
     p::Int64 = size(landmarks, 2)
 
@@ -634,8 +635,8 @@ function copy_parameters_out(covariates::DataFrame, fm::FormulaTerm, imcmc::Int6
     categorical_vars = [v for v in terms_in_model if isa(covariates_copy[!, v], CategoricalArray) || (eltype(covariates_copy[!, v]) <: AbstractString)] # are there any categorical variables in the model?
     continuous_vars = [v for v in terms_in_model if !isa(covariates_copy[!, v], CategoricalArray) && !(eltype(covariates_copy[!, v]) <: AbstractString)]
     k = size( covariance_mcmc.covariance_mcmc, 1)
-    kd_total = size(mean_mcmc.beta_mcmc, 1)
-    d = Int(kd_total / k)             # Number of variables
+    #kd_total = size(mean_mcmc.beta_mcmc, 1)
+    #d = Int(kd_total / k)             # Number of variables
     proj = zeros(k, 1)
     proj[pair[1]] = 1.0
     # println(ones(k,  1)'*proj)
@@ -643,9 +644,9 @@ function copy_parameters_out(covariates::DataFrame, fm::FormulaTerm, imcmc::Int6
     center_matrix = 1* Matrix(I, k, k) .- ones(k,  1)*proj'
     #global_center = kron(1* Matrix(I, d, d), center_matrix)
     # if isempty(continuous_vars) #this is the easier case and we are happy with it
-    if false
-        M_raw = mean_mcmc.beta_mcmc[1:k, :]
-        #M_raw = mean_mcmc.mean_mcmc[:, :, 1] # average configuration for the first observation
+    if isempty(categorical_vars)
+        #M_raw = mean_mcmc.beta_mcmc[1:k, :]
+        M_raw = mean_mcmc.mean_mcmc[:, :, 1] # average configuration for the first observation
         #M_anchored = M_raw
         # M_anchored = M_raw .- M_raw[pair[1], :]' # subtract the first row to have first landmark in (0,0)
         M_anchored = center_matrix*M_raw[:, :] # subtract the first row to have first landmark in (0,0)
@@ -670,37 +671,62 @@ function copy_parameters_out(covariates::DataFrame, fm::FormulaTerm, imcmc::Int6
             compute_angle_from_rmat(i,app_angle, app_rot, datamodel.valp, datamodel.reflection)
             #@assert isapprox(det(app_rot[:,:,i]),1.0)  "ss" * string(det(app_rot[:,:,i]))
         end
-    elseif true  # categorical variables present
+    elseif !isempty(categorical_vars) && !isempty(continuous_vars) # categorical variables present
     #     # use the first categorical variable to define groups
         v = categorical_vars[1]
         lvls = levels(covariates_copy[!, v]) # find the levels of the first categorical variable
+        len = length(lvls)
+        continous_var_index = len*k + 1
+        B0_raw = mean_mcmc.beta_mcmc[1:k, :]
+        # B_cov_raw = mean_mcmc.beta_mcmc[continous_var_index:end, :]
         for (i, l) in enumerate(lvls)
             col_idx = ((i-1) *k + 1):(i * k)
             idxs = findall(x -> x == l, covariates_copy[!, v])
-            if i > 1
-                M_raw_group = mean_mcmc.mean_mcmc[:, :, idxs[1]]  # take the mean shape for the group
+            #M_raw_group = mean_mcmc.mean_mcmc[:, :, idxs[1]]  # take the mean shape for the group
                 #M_raw_group = mean_mcmc.beta_mcmc[1:k, :]
-            else
-                M_raw_group = mean_mcmc.mean_mcmc[:, :, idxs[1]] # take the mean shape for the first group
                 #M_raw_group = mean_mcmc.beta_mcmc[1:k, :]
-            end
-            M_anchored = center_matrix*M_raw_group[:, :] # subtract the first row to have first landmark in (0,0)
-            x = M_anchored[pair[2],1]
-            y = M_anchored[pair[2],2]
-            r = sqrt(x^2 + y^2) # compute the distance from the origin
-            gammamat = [ x/r  -y/r ; 
-                y/r   x/r ]
             if i == 1
-                out.identbeta[imcmc,col_idx,:] .= center_matrix*mean_mcmc.beta_mcmc[col_idx,:] *gammamat
+                M_raw_group = B0_raw # take the mean shape for the group
+                #M_anchored = center_matrix*M_raw_group[:, :] # subtract the first row to have first landmark in (0,0)
+                # M_anchored = center_matrix*B0_raw
+                M_anchored = center_matrix*M_raw_group
+                x = M_anchored[pair[2],1]
+                y = M_anchored[pair[2],2]
+                r = sqrt(x^2 + y^2) # compute the distance from the origin
+                gammamat = [ x/r  -y/r ; 
+                    y/r   x/r ]
+                out.identbeta[imcmc,col_idx,:] .= center_matrix*B0_raw *gammamat
+                #out.identbeta[imcmc,col_idx,:] .= M_anchored *gammamat
+                for ix in eachindex(idxs)
+                    app_rot[:,:,idxs[ix]] .= transpose(gammamat)*app_rot[:,:,idxs[ix]]
+                    compute_angle_from_rmat(idxs[ix],app_angle, app_rot, datamodel.valp, datamodel.reflection)
+                end 
+                # M_anchored = center_matrix*(mean_mcmc.mean_mcmc[:, :, idxs[1]])
+                # x = M_anchored[pair[2],1]
+                # y = M_anchored[pair[2],2]
+                # r = sqrt(x^2 + y^2) # compute the distance from the origin
+                # gammamat = [ x/r  -y/r ; 
+                #     y/r   x/r ]
+                
+                out.identbeta[imcmc,continous_var_index:end,:] .= mean_mcmc.beta_mcmc[continous_var_index:end,:] *gammamat
             else
+                B_treat_raw = mean_mcmc.beta_mcmc[col_idx, :]
+                M_raw_group = B0_raw .+ B_treat_raw
+                M_anchored = center_matrix*M_raw_group
+                x = M_anchored[pair[2],1]
+                y = M_anchored[pair[2],2]
+                r = sqrt(x^2 + y^2) # compute the distance from the origin
+                gammamat = [ x/r  -y/r ; 
+                    y/r   x/r ]
+                #out.identbeta[imcmc,col_idx,:] .= center_matrix*mean_mcmc.beta_mcmc[col_idx,:] *gammamat
+                out.identbeta[imcmc,col_idx,:] .=(M_anchored *gammamat) .- out.identbeta[imcmc,1:k,:]
+                for ix in eachindex(idxs)
+                    app_rot[:,:,idxs[ix]] .= transpose(gammamat)*app_rot[:,:,idxs[ix]]
+                    compute_angle_from_rmat(idxs[ix],app_angle, app_rot, datamodel.valp, datamodel.reflection)
+                end 
                 #out.identbeta[imcmc,col_idx,:] .= center_matrix*mean_mcmc.beta_mcmc[col_idx,:] *gammamat .- out.identbeta[imcmc,1:k,:] 
-                out.identbeta[imcmc,col_idx,:] .= M_anchored*gammamat .- out.identbeta[imcmc,1:k,:] 
+                #out.identbeta[imcmc,col_idx,:] .= M_anchored*gammamat .- out.identbeta[imcmc,1:k,:] 
             end
-            for ix in eachindex(idxs)
-                app_rot[:,:,idxs[ix]] .= transpose(gammamat)*app_rot[:,:,idxs[ix]]
-                compute_angle_from_rmat(idxs[ix],app_angle, app_rot, datamodel.valp, datamodel.reflection)
-            #@assert isapprox(det(app_rot[:,:,i]),1.0)  "ss" * string(det(app_rot[:,:,i]))
-            end 
             #out.identbeta[imcmc, :, :] = (global_center * mean_mcmc.beta_mcmc[:, :]) * gammamat
         end
 

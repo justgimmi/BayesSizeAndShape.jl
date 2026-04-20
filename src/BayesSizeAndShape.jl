@@ -69,7 +69,8 @@ include(joinpath("external_function.jl"))
     posterior_samples_beta,
     posterior_samples_sigma,
     sizeshape_helmertproduct_reflection_user,
-    sample_predictive_zb
+    sample_predictive_zb,
+    sample_predictive_zb_prova
     # standardize_reg_gimmi,
     # standardize_reg_computegamma_gimmi
 

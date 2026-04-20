@@ -8,7 +8,8 @@ The function computes the Size-And-Shape version of the data `dataset`, with ref
 function sizeshape_helmertproduct_reflection(dataset::Array{Float64,3}, removelocation::DoRemoveLocation)
 
     n = size(dataset,3)
-    k = size(dataset,1)-1
+    #k = size(dataset,1)-1
+    k = size(dataset,1)
     p = size(dataset,2)
 
     
@@ -35,7 +36,8 @@ end
 
 function sizeshape_helmertproduct_reflection_user(dataset::Array{Float64,3}, method::String)
     
-    k = size(dataset, 1) - 1
+    # k = size(dataset, 1) - 1
+    k = size(dataset, 1)
     p = size(dataset, 2)
     if p == 2
         valp = ValueP2()
